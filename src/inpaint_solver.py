@@ -32,13 +32,13 @@ class Solver(object):
         self.sess.run(tf.global_variables_initializer())
 
     def _make_folders(self):
-        self.model_out_dir = "{}/model/{}".format(self.flags.dataset, self.flags.load_model)
-        self.test_out_dir = "{}/inpaint/{}/is_blend_{}".format(self.flags.dataset, self.flags.load_model,
+        self.model_out_dir = "/mnt/{}/model/{}".format(self.flags.dataset, self.flags.load_model)
+        self.test_out_dir = "/mnt/{}/inpaint/{}/is_blend_{}".format(self.flags.dataset, self.flags.load_model,
                                                                str(self.flags.is_blend))
         if not os.path.isdir(self.test_out_dir):
             os.makedirs(self.test_out_dir)
 
-        self.train_writer = tf.summary.FileWriter("{}/inpaint/{}/is_blend_{}/{}/log".format(
+        self.train_writer = tf.summary.FileWriter("/mnt/{}/inpaint/{}/is_blend_{}/{}/log".format(
             self.flags.dataset, self.flags.load_model, str(self.flags.is_blend), self.flags.mask_type),
             graph_def=self.sess.graph_def)
 
@@ -51,21 +51,22 @@ class Solver(object):
         for num_try in range(self.flags.num_try):
             self.model.preprocess()  # initialize memory for inpaint model
 
-            imgs = self.dataset.val_next_batch(batch_size=self.flags.sample_batch)  # random select in validation data
+            imgs, y_label = self.dataset.val_next_batch(batch_size=self.flags.sample_batch)  # random select in
+            # validation data
             best_loss = np.ones(self.flags.sample_batch) * 1e10
             best_outs = np.zeros_like(imgs)
 
             start_time = time.time()  # measure inference time
             for iter_time in range(self.flags.iters):
-                loss, img_outs, summary = self.model(imgs, iter_time)  # inference
+                loss, img_outs, summary = self.model(imgs, y_label, iter_time)  # inference
 
-                # save best gen_results accroding to the total loss
+                # save best gen_results according to the total loss
                 for iter_loss in range(self.flags.sample_batch):
                     if best_loss[iter_loss] > loss[2][iter_loss]:  # total loss
                         best_loss[iter_loss] = loss[2][iter_loss]
                         best_outs[iter_loss] = img_outs[iter_loss]
 
-                self.model.print_info(loss, iter_time, num_try)  # pring loss information
+                self.model.print_info(loss, iter_time, num_try)  # print loss information
 
                 if num_try == 0:  # save first try-information on the tensorboard only
                     self.train_writer.add_summary(summary, iter_time)  # write to tensorboard

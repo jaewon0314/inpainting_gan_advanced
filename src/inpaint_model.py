@@ -1,11 +1,8 @@
 import collections
 import numpy as np
 import tensorflow as tf
+import cv2 as cv
 from scipy.signal import convolve2d
-import matplotlib as mpl
-mpl.use('TkAgg')  # or whatever other backend that you want to solve Segmentation fault (core dumped)
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 
 import utils as utils
 from dcgan import DCGAN
@@ -28,8 +25,8 @@ class ModelInpaint(object):
         print('Initialized Model Inpaint SUCCESS!')
 
     def _build_net(self):
-        self.wmasks_ph = tf.placeholder(tf.float32, [None, *self.image_size], name='wmasks')
-        self.images_ph = tf.placeholder(tf.float32, [None, *self.image_size], name='images')
+        self.wmasks_ph = tf.placeholder(tf.float32, [None, self.image_size[0], self.image_size[1], 3], name='wmasks')
+        self.images_ph = tf.placeholder(tf.float32, [None, self.image_size[0], self.image_size[1], 3], name='images')
 
         self.context_loss = tf.reduce_sum(tf.contrib.layers.flatten(
             tf.abs(tf.multiply(self.wmasks_ph, self.dcgan.g_samples) - tf.multiply(self.wmasks_ph, self.images_ph))), 1)
@@ -59,10 +56,16 @@ class ModelInpaint(object):
 
         self.summary_op = tf.summary.merge_all()
 
-    def __call__(self, imgs, iter_time):
+    def __call__(self, imgs, label, iter_time):
+        if self.flags.glasses:
+            label[0] = 1
+        else:
+            label[0] = 0
         feed_dict = {self.dcgan.z: self.z_vectors,
+                     self.dcgan.Y_label: label,
                      self.wmasks_ph: self.wmasks,
-                     self.images_ph: imgs}
+                     self.images_ph: imgs,
+                     self.dcgan.Y: imgs}
         out_vars = [self.context_loss, self.prior_loss, self.total_loss, self.grad, self.dcgan.g_samples,
                     self.summary_op]
 
@@ -76,7 +79,7 @@ class ModelInpaint(object):
         v_prev = np.copy(self.velocity)
         self.velocity = self.flags.momentum * self.velocity - self.learning_rate * grad[0]
         self.z_vectors += -self.flags.momentum * v_prev + (1 + self.flags.momentum) * self.velocity
-        self.z_vectors = np.clip(self.z_vectors, -1., 1.)  # as paper mentioned
+        self.z_vectors = np.clip(self.z_vectors, -1., 1.)  # as paper mentioned  
 
         return [context_loss, prior_loss, total_loss], img_out, summary
 
@@ -109,7 +112,7 @@ class ModelInpaint(object):
 
     @staticmethod
     def create3_channel_masks(masks):
-        masks_3c = np.zeros((*masks.shape, 3), dtype=np.float32)
+        masks_3c = np.zeros(masks.shape + tuple([3]), dtype=np.float32)
 
         for idx in range(masks.shape[0]):
             mask = masks[idx]
@@ -122,35 +125,31 @@ class ModelInpaint(object):
         n_rows = self.flags.sample_batch
 
         # parameters for plot size
-        scale, margin = 0.04, 0.001
-        cell_size_h, cell_size_w = img_list[0][0].shape[0] * scale, img_list[0][0].shape[1] * scale
-        fig = plt.figure(figsize=(cell_size_w * n_cols, cell_size_h * n_rows))  # (column, row)
-        gs = gridspec.GridSpec(n_rows, n_cols)  # (row, column)
-        gs.update(wspace=margin, hspace=margin)
+        # scale, margin = 0.04, 0.001
 
-        # save more bigger image
-        for col_index in range(n_cols):
-            for row_index in range(n_rows):
-                ax = plt.subplot(gs[row_index * n_cols + col_index])
-                plt.axis('off')
-                ax.set_xticklabels([])
-                ax.set_yticklabels([])
-                ax.set_aspect('equal')
+        output = (img_list[0][0] * self.masks[0]).reshape(self.image_size[0], self.image_size[1], self.image_size[2])
+        for row_index in range(n_rows - 1):
+            output = cv.vconcat([output, (img_list[0][row_index + 1] * self.masks[row_index + 1]).reshape(
+                self.image_size[0], self.image_size[1], self.image_size[2])])
 
-                if col_index == 0:  # original input image
-                    plt.imshow((img_list[col_index][row_index] * self.masks[row_index]).reshape(
-                        self.image_size[0], self.image_size[1], self.image_size[2]), cmap='Greys_r')
-                else:
-                    plt.imshow((img_list[col_index][row_index]).reshape(
-                        self.image_size[0], self.image_size[1], self.image_size[2]), cmap='Greys_r')
+        for col_index in range(n_cols - 1):
+            out = (img_list[col_index + 1][0]).reshape(self.image_size[0], self.image_size[1],
+                                                                   self.image_size[2])
+            for row_index in range(n_rows - 1):
+                out = cv.vconcat([out, (img_list[col_index + 1][row_index + 1]).reshape(
+                    self.image_size[0], self.image_size[1], self.image_size[2])])
+            output = cv.hconcat([output, out])
 
-        plt.savefig(save_file + '/{}_{}.png'.format(self.flags.mask_type, num_try), bbox_inches='tight')
-        plt.close(fig)
+        output = np.uint8(output * 255.0)
+        print(np.min(output), np.max(output))
+
+        cv.imwrite(save_file + '/{}_{}.png'.format(self.flags.mask_type, num_try), output)
 
 
 class Flags(object):
     def __init__(self, flags):
         self.z_dim = flags.z_dim
+        self.y_dim = flags.y_dim
         self.learning_rate = flags.learning_rate
         self.beta1 = flags.momentum
         self.sample_batch = flags.sample_batch

@@ -28,7 +28,7 @@ class Solver(object):
         self._make_folders()
         self.iter_time = 0
 
-        self.saver = tf.train.Saver()
+        self.saver = tf.train.Saver(max_to_keep=2000)
         self.sess.run(tf.global_variables_initializer())
 
         tf_utils.show_all_variables()
@@ -37,22 +37,25 @@ class Solver(object):
         if self.flags.is_train:
             if self.flags.load_model is None:
                 cur_time = datetime.now().strftime("%Y%m%d-%H%M")
-                self.model_out_dir = "{}/model/{}".format(self.flags.dataset, cur_time)
+                self.model_out_dir = "/mnt/{}/model/{}".format(self.flags.dataset, cur_time)
                 if not os.path.isdir(self.model_out_dir):
                     os.makedirs(self.model_out_dir)
             else:
                 cur_time = self.flags.load_model
-                self.model_out_dir = "{}/model/{}".format(self.flags.dataset, cur_time)
+                self.model_out_dir = "/mnt/{}/model/{}".format(self.flags.dataset, cur_time)
 
-            self.sample_out_dir = "{}/sample/{}".format(self.flags.dataset, cur_time)
+            self.sample_out_dir = "/mnt/{}/sample/{}".format(self.flags.dataset, cur_time)
+
+            self.dataset_out_dir = "/mnt/{}/dataset/{}".format(self.flags.dataset, cur_time)
+
             if not os.path.isdir(self.sample_out_dir):
                 os.makedirs(self.sample_out_dir)
 
-            self.train_writer = tf.summary.FileWriter("{}/logs/{}".format(self.flags.dataset, cur_time),
+            self.train_writer = tf.summary.FileWriter("/mnt/{}/logs/{}".format(self.flags.dataset, cur_time),
                                                       graph_def=self.sess.graph_def)
         elif not self.flags.is_train:
-            self.model_out_dir = "{}/model/{}".format(self.flags.dataset, self.flags.load_model)
-            self.test_out_dir = "{}/test/{}".format(self.flags.dataset, self.flags.load_model)
+            self.model_out_dir = "/mnt/{}/model/{}".format(self.flags.dataset, self.flags.load_model)
+            self.test_out_dir = "/mnt/{}/test/{}".format(self.flags.dataset, self.flags.load_model)
             if not os.path.isdir(self.test_out_dir):
                 os.makedirs(self.test_out_dir)
 
@@ -62,15 +65,21 @@ class Solver(object):
             if self.load_model():
                 print(' [*] Load SUCCESS!\n')
             else:
-                print(' [! Load Failed...\n')
+                print(' [!] Load Failed...\n')
 
         while self.iter_time < self.flags.iters:
-            # samppling images and save them
+            # sampling images and save them
             self.sample(self.iter_time)
 
             # train_step
-            batch_imgs = self.dataset.train_next_batch(batch_size=self.flags.batch_size)
-            loss, summary = self.model.train_step(batch_imgs)
+            batch_imgs, batch_y_ind = self.dataset.train_next_batch(batch_size=self.flags.batch_size)
+
+            # print(np.min(batch_imgs), np.max(batch_imgs))
+            # print(batch_y_ind)
+            # print(batch_y_ind[0])
+            # exit(1)
+
+            loss, summary = self.model.train_step(batch_imgs, batch_y_ind)
             self.model.print_info(loss, self.iter_time)
             self.train_writer.add_summary(summary, self.iter_time)
             self.train_writer.flush()
@@ -100,11 +109,11 @@ class Solver(object):
 
     def sample(self, iter_time):
         if np.mod(iter_time, self.flags.sample_freq) == 0:
-            # imgs = self.model.sample_imgs()
-            # self.model.plots(imgs, iter_time, self.sample_out_dir)
+            imgs = self.model.sample_imgs()
+            self.model.plots(imgs, iter_time, self.sample_out_dir)
 
-            imgs = self.dataset.train_next_batch(batch_size=self.flags.sample_batch)
-            self.model.plots([imgs], iter_time, self.sample_out_dir)
+            imgs, label = self.dataset.train_next_batch(batch_size=self.flags.sample_batch)
+            self.model.plots([imgs], iter_time, self.dataset_out_dir)
 
     def save_model(self, iter_time):
         if np.mod(iter_time + 1, self.flags.save_freq) == 0:
