@@ -6,6 +6,7 @@
 # ---------------------------------------------------------
 import os
 import time
+import shutil
 import numpy as np
 import scipy.io
 import scipy.misc
@@ -70,7 +71,7 @@ class CelebA(object):
             batch_labels = [self.train_data_with_label[x][1:] for x in batch_datas]
             batch_paths = [self.train_data_with_label[x][0] for x in batch_datas]
         else:
-            batch_paths = np.random.choice(self.train_data, batch_size, replace=True)
+            batch_paths = np.random.choice(self.train_data, batch_size, replace=False)
             batch_labels = None
         batch_imgs = [utils.load_data(batch_path, input_height=self.input_height, input_width=self.input_width)
                       for batch_path in batch_paths]
